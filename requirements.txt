@@ -6,3 +6,4 @@ accelerate
 safetensors
 sentencepiece
 Pillow
+hf_transfer
