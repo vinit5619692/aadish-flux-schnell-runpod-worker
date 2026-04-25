@@ -70,7 +70,7 @@ def handler(job):
         prompt=prompt,
         negative_prompt=negative_prompt,
         num_inference_steps=steps,
-        guidance_scale=0.0,
+        guidance_scale=2.5,
         width=width,
         height=height,
         generator=generator,
