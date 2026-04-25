@@ -2,38 +2,51 @@ import os
 import io
 import base64
 import threading
+from pathlib import Path
 
 import runpod
 import torch
 from diffusers import FluxPipeline
 
+MODEL_ID = "black-forest-labs/FLUX.1-schnell"
+PIPE = None
+LOCK = threading.Lock()
 
-_MODEL_ID = "black-forest-labs/FLUX.1-schnell"
-_PIPE = None
-_LOCK = threading.Lock()
+
+def _prepare_cache_dirs() -> None:
+    hf_home = Path(os.getenv("HF_HOME", "/runpod-volume/hf"))
+    hub_cache = Path(os.getenv("HUGGINGFACE_HUB_CACHE", str(hf_home / "hub")))
+    tr_cache = Path(os.getenv("TRANSFORMERS_CACHE", str(hf_home / "transformers")))
+
+    hf_home.mkdir(parents=True, exist_ok=True)
+    hub_cache.mkdir(parents=True, exist_ok=True)
+    tr_cache.mkdir(parents=True, exist_ok=True)
 
 
-def get_pipe():
-    global _PIPE
-    if _PIPE is None:
-        with _LOCK:
-            if _PIPE is None:
-                hf_token = os.environ.get("HF_TOKEN")
+def get_pipe() -> FluxPipeline:
+    global PIPE
+    if PIPE is None:
+        with LOCK:
+            if PIPE is None:
+                _prepare_cache_dirs()
+
+                hf_token = os.getenv("HF_TOKEN")
                 if not hf_token:
                     raise RuntimeError("HF_TOKEN is missing in endpoint environment variables.")
 
                 dtype = torch.float16 if torch.cuda.is_available() else torch.float32
-                _PIPE = FluxPipeline.from_pretrained(
-                    _MODEL_ID,
+
+                PIPE = FluxPipeline.from_pretrained(
+                    MODEL_ID,
                     torch_dtype=dtype,
                     token=hf_token,
                 )
 
                 if torch.cuda.is_available():
-                    _PIPE.to("cuda")
+                    PIPE.to("cuda")
                 else:
-                    _PIPE.to("cpu")
-    return _PIPE
+                    PIPE.to("cpu")
+    return PIPE
 
 
 def handler(job):
@@ -47,13 +60,12 @@ def handler(job):
     height = int(data.get("height", 1024))
     steps = int(data.get("steps", 4))
     seed = int(data.get("seed", 42))
-    negative_prompt = data.get("negative_prompt", None)
+    negative_prompt = data.get("negative_prompt")
 
     pipe = get_pipe()
     device = "cuda" if torch.cuda.is_available() else "cpu"
     generator = torch.Generator(device=device).manual_seed(seed)
 
-    # FLUX.1-schnell typically uses low guidance (0.0 is common).
     image = pipe(
         prompt=prompt,
         negative_prompt=negative_prompt,
@@ -73,7 +85,7 @@ def handler(job):
         "seed": seed,
         "width": width,
         "height": height,
-        "model": _MODEL_ID,
+        "model": MODEL_ID,
     }
 
 
